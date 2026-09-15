@@ -1,0 +1,14 @@
+openai>=1.0.0
+anthropic>=0.40.0
+google-genai>=0.3.0
+torch>=2.1.0
+transformers>=4.40.0
+spacy>=3.7.0
+numpy>=1.26.0
+pandas>=2.2.0
+streamlit>=1.30.0
+scipy>=1.12.0
+scikit-learn>=1.4.0
+matplotlib>=3.8.0
+# Após instalar spacy, baixe o modelo de português:
+#   python -m spacy download pt_core_news_sm
