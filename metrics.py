@@ -30,6 +30,18 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 MODEL_ID = "TucanoBR/Tucano-1b1"
 
+# Número mínimo de tokens para uma sentença entrar no cálculo.
+#
+# Textos extraídos de PDF (caso dos anais) costumam produzir fragmentos
+# órfãos como "(não frequentes)." ou 'Saber "', separados do período
+# original por quebras de linha do layout. Fora de contexto, o modelo
+# atribui a esses cacos uma perplexidade altíssima (3790 contra uma
+# mediana de 37 no mesmo texto), o que domina o desvio-padrão e faz o
+# burstiness explodir. Como eles são ruído de extração e não escrita
+# real, ficam de fora — seguindo a mesma lógica que já descartava
+# sentenças de 1 token por falta de contexto.
+MIN_TOKENS_SENTENCA = 5
+
 
 # ----------------------------------------------------------------------
 # Segmentação de sentenças
@@ -68,6 +80,7 @@ class TextMetrics:
     burstiness: float
     n_sentences: int
     n_tokens: int
+    n_descartadas: int = 0  # fragmentos curtos ignorados no cálculo
     sentence_perplexities: List[float] = field(default_factory=list)
 
     def as_dict(self) -> dict:
@@ -76,6 +89,7 @@ class TextMetrics:
             "burstiness": self.burstiness,
             "n_sentences": self.n_sentences,
             "n_tokens": self.n_tokens,
+            "n_descartadas": self.n_descartadas,
         }
 
 
@@ -139,6 +153,7 @@ class TucanoMetrics:
         """
         Pipeline completo para um texto:
           1. segmentação em sentenças
+          1b. descarte de fragmentos curtos (< MIN_TOKENS_SENTENCA)
           2. perplexidade por sentença
           3. perplexidade do texto = média ponderada pelo nº de tokens
           4. burstiness = desvio-padrão das perplexidades por sentença
@@ -148,11 +163,17 @@ class TucanoMetrics:
         sent_ppls: List[float] = []
         sent_weights: List[int] = []
 
+        n_descartadas = 0
         for sent in sentences:
             ppl, n_tok = self.sentence_perplexity(sent)
-            if ppl == ppl:  # descarta NaN (sentenças de 1 token)
-                sent_ppls.append(ppl)
-                sent_weights.append(n_tok)
+            if ppl != ppl:  # NaN: sentença de 1 token, sem contexto
+                n_descartadas += 1
+                continue
+            if n_tok < MIN_TOKENS_SENTENCA:  # fragmento de extração
+                n_descartadas += 1
+                continue
+            sent_ppls.append(ppl)
+            sent_weights.append(n_tok)
 
         if not sent_ppls:
             raise ValueError(
@@ -173,5 +194,6 @@ class TucanoMetrics:
             burstiness=burstiness,
             n_sentences=len(sent_ppls),
             n_tokens=total_tokens,
+            n_descartadas=n_descartadas,
             sentence_perplexities=sent_ppls,
         )

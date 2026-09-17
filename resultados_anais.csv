@@ -1,0 +1,7 @@
+arquivo,origem,perplexidade,burstiness,n_sentencas,n_tokens,n_descartadas
+anais_aprendizado_de_máquina_001.txt,anais,23.3622,17.5739,11,403,0
+anais_banco_de_dados_001.txt,anais,36.276,31.6604,15,364,2
+anais_inteligência_artificial_001.txt,anais,31.8338,21.9763,11,497,0
+anais_processamento_de_linguagem_natural_001.txt,anais,24.8084,10.6563,8,329,0
+anais_processamento_de_linguagem_natural_002.txt,anais,25.6078,21.9653,12,411,1
+anais_visão_computacional_001.txt,anais,29.7498,16.4204,14,360,0

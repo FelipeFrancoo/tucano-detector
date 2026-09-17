@@ -67,6 +67,7 @@ def main():
             "burstiness": round(resultado.burstiness, 4),
             "n_sentencas": resultado.n_sentences,
             "n_tokens": resultado.n_tokens,
+            "n_descartadas": resultado.n_descartadas,
         })
         print(f"  [{i}/{len(files)}] {path.name}: "
               f"PPL={resultado.text_perplexity:.2f}  Burst={resultado.burstiness:.2f}")

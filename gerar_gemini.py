@@ -27,7 +27,14 @@ import time
 from google import genai
 from google.genai import types
 
-from common import TEMAS_DISTRIBUICAO, montar_prompt, registrar_historico, salvar_texto
+from common import (
+    MAX_TENTATIVAS,
+    TEMAS_DISTRIBUICAO,
+    conferir_tamanho,
+    montar_prompt,
+    registrar_historico,
+    salvar_texto,
+)
 
 MODELO = "gemini-3.1-pro-preview"
 TEMPERATURA = 1.0
@@ -40,8 +47,8 @@ MAX_OUTPUT_TOKENS = 8192
 PROVEDOR = "gemini"
 
 QUANTIDADE_PADRAO = 5  # quantos textos gerar nesta execução (1 arquivo .txt por texto)
-MIN_PALAVRAS = 300  # abaixo disso o texto é considerado curto/cortado e é gerado de novo
-MAX_TENTATIVAS = 3  # tentativas por texto antes de desistir daquele item da fila
+# A faixa aceita de palavras e o número de tentativas vêm de common.py,
+# para que os três modelos usem exatamente o mesmo critério.
 
 # Preços do gemini-3.1-pro-preview (prompts <= 200k tokens), em US$ por token.
 # Tokens de raciocínio são cobrados como saída.
@@ -139,10 +146,11 @@ def gerar(pasta_saida: str, limite_usd: float, quantidade: int) -> None:
             motivo = resposta.candidates[0].finish_reason if resposta.candidates else None
             detalhes = f"{n_palavras} palavras, {tokens_texto} tokens de texto + {tokens_raciocinio} de raciocínio"
 
+            problema = conferir_tamanho(candidato)
             if motivo == types.FinishReason.MAX_TOKENS:
                 print(f"[{i}/{total}] Tentativa {tentativa}: texto cortado pelo limite de tokens ({detalhes}).")
-            elif n_palavras < MIN_PALAVRAS:
-                print(f"[{i}/{total}] Tentativa {tentativa}: texto curto demais ({detalhes}).")
+            elif problema:
+                print(f"[{i}/{total}] Tentativa {tentativa}: texto {problema} ({detalhes}).")
             else:
                 texto = candidato
                 break

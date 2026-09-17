@@ -74,6 +74,39 @@ PROMPT_TEMPLATE = (
 
 HISTORY_SIZE = 3  # quantas gerações anteriores citar como "já usadas" por tema
 
+# ---------------------------------------------------------------
+# Controle de tamanho dos textos gerados.
+#
+# O prompt pede entre 350 e 400 palavras, mas os modelos não
+# respeitam essa faixa com exatidão. Aceita-se uma tolerância de 50
+# palavras para cada lado; fora disso o texto é descartado e gerado
+# de novo. Isso vale para os TRÊS modelos, de modo que o tamanho não
+# vire uma variável descontrolada na comparação entre os grupos
+# sintéticos (um texto muito mais longo que os outros distorce a
+# perplexidade e o burstiness medidos depois).
+# ---------------------------------------------------------------
+PALAVRAS_ALVO_MIN = 350
+PALAVRAS_ALVO_MAX = 400
+TOLERANCIA_PALAVRAS = 50
+
+MIN_PALAVRAS = PALAVRAS_ALVO_MIN - TOLERANCIA_PALAVRAS  # 300
+MAX_PALAVRAS = PALAVRAS_ALVO_MAX + TOLERANCIA_PALAVRAS  # 450
+
+MAX_TENTATIVAS = 3  # tentativas por texto antes de desistir daquele item da fila
+
+
+def conferir_tamanho(texto: str) -> str:
+    """Verifica se o texto está dentro da faixa aceita de palavras.
+
+    Retorna uma string vazia quando o texto é válido, ou uma mensagem
+    explicando o motivo da rejeição (curto ou longo demais)."""
+    n_palavras = len(texto.split())
+    if n_palavras < MIN_PALAVRAS:
+        return f"curto demais ({n_palavras} palavras, mínimo {MIN_PALAVRAS})"
+    if n_palavras > MAX_PALAVRAS:
+        return f"longo demais ({n_palavras} palavras, máximo {MAX_PALAVRAS})"
+    return ""
+
 
 def gerar_fila_temas() -> list:
     """Monta a fila de temas a serem gerados, respeitando exatamente as

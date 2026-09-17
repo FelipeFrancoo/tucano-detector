@@ -24,13 +24,25 @@ import time
 
 import anthropic
 
-from common import gerar_fila_temas, montar_prompt, registrar_historico, salvar_texto
+from common import (
+    MAX_TENTATIVAS,
+    conferir_tamanho,
+    gerar_fila_temas,
+    montar_prompt,
+    registrar_historico,
+    salvar_texto,
+)
 
 MODELO = "claude-opus-5"
 TEMPERATURA = 0.7
 TOP_P = 1.0
-MAX_TOKENS = 500
+# 350-400 palavras em português ficam em ~700-900 tokens. Com 500 o texto
+# saía cortado no meio e nunca passaria na conferência de tamanho; 1200
+# deixa folga sem gastar demais.
+MAX_TOKENS = 1200
 PROVEDOR = "claude"
+# A faixa aceita de palavras e o número de tentativas vêm de common.py,
+# para que os três modelos usem exatamente o mesmo critério.
 
 
 def gerar(pasta_saida: str) -> None:
@@ -42,19 +54,37 @@ def gerar(pasta_saida: str) -> None:
 
     for i, tema in enumerate(fila_temas, start=1):
         prompt = montar_prompt(tema, historico)
+        texto = None
 
-        try:
-            resposta = client.messages.create(
-                model=MODELO,
-                max_tokens=MAX_TOKENS,
-                temperature=TEMPERATURA,
-                top_p=TOP_P,
-                messages=[{"role": "user", "content": prompt}],
-            )
-            texto = resposta.content[0].text
-        except Exception as erro:
-            print(f"[{i}/{total}] Erro ao gerar texto para tema '{tema}': {erro}")
-            time.sleep(5)
+        for tentativa in range(1, MAX_TENTATIVAS + 1):
+            try:
+                resposta = client.messages.create(
+                    model=MODELO,
+                    max_tokens=MAX_TOKENS,
+                    temperature=TEMPERATURA,
+                    top_p=TOP_P,
+                    messages=[{"role": "user", "content": prompt}],
+                )
+            except Exception as erro:
+                print(f"[{i}/{total}] Tentativa {tentativa}: erro ao gerar texto para tema '{tema}': {erro}")
+                time.sleep(5)
+                continue
+
+            candidato = resposta.content[0].text if resposta.content else ""
+            problema = conferir_tamanho(candidato)
+
+            if resposta.stop_reason == "max_tokens":
+                print(f"[{i}/{total}] Tentativa {tentativa}: texto cortado pelo limite de tokens.")
+            elif problema:
+                print(f"[{i}/{total}] Tentativa {tentativa}: texto {problema}.")
+            else:
+                texto = candidato
+                break
+
+            time.sleep(1)
+
+        if texto is None:
+            print(f"[{i}/{total}] Desistindo do tema '{tema}' após {MAX_TENTATIVAS} tentativas.")
             continue
 
         indice = contador_por_tema.get(tema, 0) + 1
