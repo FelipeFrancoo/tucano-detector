@@ -20,7 +20,7 @@ DESCARTE = re.compile(r"(\bFig\.|\bFigura|\bFigure|\bTabela|\bTable|\bSeção|\b
 DANGLING = re.compile(r"\b(como|em|por|segundo|conforme|de|da|do|e|ou)\s*[\.,;]|"
                       r"\b(como|em|por|de)\s+(e|ou)\b")
 
-CIT  = re.compile(r"\[[^\]]{1,200}\]")
+CIT  = re.compile(r"\[[^\]]{1,400}\]")
 PREP = re.compile(r"\b(em|por|de|da|do|e|ou|como|segundo|conforme|apresentad[ao]s? em|"
                   r"proposto em|realizada em|utilizad[ao]s? em|trabalho de|trabalhos de)\s*$", re.I)
 
@@ -83,15 +83,55 @@ def recortar_intro(bruto):
     return "\n".join(linhas[i + 1:j])
 
 
+# Cabeçalho corrido que o pdftotext insere no meio do parágrafo, na virada de
+# página. Não é linha isolada: vem grudado no texto, então é removido por string.
+MES = "January|February|March|April|May|June|July|August|September|October|November|December"
+BANNER = re.compile(
+    rf"\s*\d{{0,4}}\s*\d{{4}}\s+SBC\s+\S+\s+Brazilian Symposium on [^)]{{0,60}}\)\s*"
+    rf"(?:{MES})\s+\d{{1,2}}\s*-\s*\d{{1,2}},\s*\d{{4}}\s*-\s*[^,]{{0,30}},\s*\w{{2}},\s*Brazil\s*"
+    rf"|\s*\d{{0,4}}\s*[IVXL]+\s+Simpósio Brasileiro de [^/]{{0,60}}/\s*[IVXL]+\s+Brazilian Symposium on "
+    rf"[^/]{{0,60}}Artigos Técnicos\s*/\s*Research Papers\s*", re.I)
+
+EMAIL = re.compile(r"\S+@\S+")
+# consulta/código embutido na prosa: é texto humano, mas não é prosa
+CODIGO = re.compile(r"[{}]|\bselect\b[^.]{0,40}\bwhere\b|\?\w+\s+\?\w+", re.I)
+# sequência de tokens curtos = conteúdo de tabela ("sujeito s1 s1 s2 predicado p1 p2")
+TABELA = re.compile(r"(?:\b\S{1,3}\b[ ,]+){6,}")
+# Ponto final seguido de minúscula dentro da mesma sentença: sinal de que uma
+# nota de rodapé ou uma linha fora de ordem foi costurada no meio do parágrafo
+# ("...de coleções Este nome alude a um sistema híbrido... de dados. distintas.").
+# Abreviações comuns ficam de fora, senão "et al." e "i.e." disparam.
+ABREV = {"al", "i.e", "e.g", "etc", "ex", "p", "pp", "fig", "vs", "cf",
+         "dr", "sr", "sra", "profa", "prof", "ed", "no", "num"}
+CORTE = re.compile(r"(\S+?)([.!?])\s+[a-zà-ÿ]")
+
+
+def costurada(s):
+    for m in CORTE.finditer(s):
+        tok = m.group(1).lower().strip("([\"'")
+        if tok in ABREV or len(tok) <= 1:
+            continue
+        return True
+    return False
+
+
+# bigramas que não existem em português — resto de linha perdida na extração
+QUEBRADO = re.compile(r"\bem do\b|\bde a\b|\bpor de\b|\bcom de\b|\bem de\b", re.I)
+
+
 def limpar(bruto):
     # linha com URL em qualquer posição é rodapé/referência, nunca corpo
-    linhas = [l for l in bruto.split("\n") if not LIXO.match(l) and not re.search(r"https?://|www\.", l, re.I)]
+    linhas = [l for l in bruto.split("\n")
+              if not LIXO.match(l)
+              and not re.search(r"https?://|www\.", l, re.I)
+              and not EMAIL.search(l)]
     t = "\n".join(linhas)
     t = re.sub(r"(\w)-\n(\w)", r"\1\2", t)
     t = re.sub(r"\s*\n\s*", " ", t)
     t = re.sub(r"(?<=[a-zA-ZÀ-ÿ]{2})\d(?=[\s,\.])", "", t)
     t = re.sub(r"(?<=\))\d(?=[\s,\.])", "", t)
     t = re.sub(r"\b(20\d{2})\d\b", r"\1", t)
+    t = BANNER.sub(" ", t)
     return re.sub(r"\s{2,}", " ", t).strip()
 
 
@@ -108,7 +148,22 @@ def sentencas(t):
 
 
 def carregada(s):
-    return any(PREP.search(s[:m.start()]) for m in CIT.finditer(s))
+    """A citação é argumento sintático da frase — removê-la quebra a sintaxe.
+
+    Três casos: citação no início do trecho; logo depois de ponto final (abre
+    uma frase ortográfica que o segmentador não separou, porque o que vem a
+    seguir é minúsculo: "(ACO). [Silva 2010] estudaram, por sua vez, ...");
+    ou precedida de preposição ("foi realizada em [Barbosa 2019]").
+    """
+    for m in CIT.finditer(s):
+        antes = s[:m.start()].rstrip()
+        if not antes:
+            return True
+        if antes.endswith((".", "!", "?", ":", ";")):
+            return True
+        if PREP.search(antes):
+            return True
+    return False
 
 
 def processar(caminho, min_pal=380, max_sent=14):
@@ -124,7 +179,9 @@ def processar(caminho, min_pal=380, max_sent=14):
         if ((tinha_cit and DANGLING.search(s)) or len(s.split()) < 5
                 or s.count("(") != s.count(")")
                 or re.search(r"\(\s*(e|ou|[,;]|\s)*\)", s)
-                or re.search(r"\b\d{1,2}\.\s*$", s)):   # fragmento de lista enumerada
+                or re.search(r"\b\d{1,2}\.\s*$", s)      # fragmento de lista enumerada
+                or TABELA.search(s) or QUEBRADO.search(s) or EMAIL.search(s)
+                or CODIGO.search(s) or costurada(s)):
             continue
         mantidas.append(s)
 
