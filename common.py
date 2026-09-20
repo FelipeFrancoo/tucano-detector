@@ -13,27 +13,35 @@ import random
 
 # ---------------------------------------------------------------
 # Distribuição fixa de temas e quantidade de textos por tema.
-# Os MESMOS 6 temas e as MESMAS quotas são usados para os três
+# Os MESMOS 7 temas e as MESMAS quotas são usados para os três
 # modelos (ChatGPT, Claude, Gemini), garantindo que os três grupos
-# sintéticos sejam gerados sobre exatamente os mesmos temas.
+# sintéticos sejam gerados sobre exatamente os mesmos temas do
+# corpus humano.
 #
-#   Tema                        | Textos por modelo
-#   -----------------------------|-------------------
-#   Inteligência Artificial      | 9
-#   Aprendizado de Máquina       | 9
-#   PLN                          | 8
-#   Visão Computacional          | 8
-#   Banco de Dados               | 8
-#   Engenharia de Software       | 8
-#   Total                        | 50
+#   Tema                         | Por modelo | Humano
+#   ------------------------------|------------|--------
+#   Inteligência Artificial       |      8     |   22
+#   Aprendizado de Máquina        |      8     |   22
+#   PLN                           |      7     |   22
+#   Visão Computacional           |      7     |   22
+#   Banco de Dados                |      7     |   22
+#   Redes de Computadores         |      7     |   22
+#   Engenharia de Software        |      6     |   18
+#   Total                         |     50     |  150
+#
+# A quota menor de Engenharia de Software acompanha o corpus humano:
+# os eventos brasileiros da área (SBES, SBQS) migraram para o inglês
+# antes dos demais, e não há artigos técnicos em português suficientes
+# nas edições anteriores a 2022. É restrição da fonte, não escolha.
 # ---------------------------------------------------------------
 TEMAS_DISTRIBUICAO = {
-    "Inteligência Artificial": 9,
-    "Aprendizado de Máquina": 9,
-    "Processamento de Linguagem Natural": 8,
-    "Visão Computacional": 8,
-    "Banco de Dados": 8,
-    "Engenharia de Software": 8,
+    "Inteligência Artificial": 8,
+    "Aprendizado de Máquina": 8,
+    "Processamento de Linguagem Natural": 7,
+    "Visão Computacional": 7,
+    "Banco de Dados": 7,
+    "Redes de Computadores": 7,
+    "Engenharia de Software": 6,
 }
 
 TOTAL_TEXTOS = sum(TEMAS_DISTRIBUICAO.values())  # 50
