@@ -46,25 +46,91 @@ MIN_TOKENS_SENTENCA = 5
 # ----------------------------------------------------------------------
 # Segmentação de sentenças
 # ----------------------------------------------------------------------
+# O spaCy quebra sentença depois de "et al." e, às vezes, depois de
+# dois-pontos. Isso gera fragmentos ("Araújo et al.", "o ramo de
+# apostas.") que não são sentenças e recebem perplexidade altíssima por
+# falta de contexto, inflando o burstiness de textos sem defeito algum.
+# O MIN_TOKENS_SENTENCA não pega esses casos porque eles têm 5 ou 6
+# tokens. O componente abaixo roda antes do parser e proíbe início de
+# sentença logo depois dessas abreviações e de dois-pontos.
+NAO_TERMINA_SENTENCA = {
+    # o tokenizador do spaCy separa o ponto da abreviação ("al" + "."),
+    # por isso as duas formas entram no conjunto
+    "al.", "al", "etc.", "etc", "fig.", "fig", "figs.", "tab.", "tab",
+    "eq.", "eq", "ref.", "ref", "cap.", "cap", "p.", "p", "pp.", "pp",
+    "vs.", "vs", "cf.", "cf", "ed.", "ed", "eds.", "vol.", "vol",
+    "no.", "núm.", "num.", "dr.", "dra.", "sr.", "sra.", "prof.",
+    "profa.", "aprox.", "e.g.", "i.e.", "ca.", "séc.",
+    ":",
+}
+
+
+def _registrar_componente() -> None:
+    """Registra o componente no spaCy uma única vez."""
+    import spacy
+
+    if "nao_quebrar_apos_abreviacao" in spacy.registry.factories:
+        return
+
+    @spacy.Language.component("nao_quebrar_apos_abreviacao")
+    def nao_quebrar_apos_abreviacao(doc):
+        n = len(doc)
+        for i in range(n - 1):
+            if doc[i].text.lower() not in NAO_TERMINA_SENTENCA:
+                continue
+            # pula a pontuação que o tokenizador separou da abreviação
+            j = i + 1
+            while j < n and doc[j].text in {".", ":"}:
+                j += 1
+            if 0 < j < n:
+                doc[j].is_sent_start = False
+        return doc
+
+
+def _juntar_fragmentos(sentencas: List[str]) -> List[str]:
+    """Junta trechos que não terminam em pontuação final.
+
+    Mesmo antes do parser, o spaCy às vezes abre sentença no meio de uma
+    frase, sem pontuação alguma ("O Problema p-hub" | "Centro (pHCP) é um
+    problema..."). Um trecho que não termina em . ! ? não é uma sentença:
+    é a primeira metade da seguinte.
+    """
+    saida: List[str] = []
+    for s in sentencas:
+        if saida and not saida[-1].rstrip().endswith((".", "!", "?")):
+            saida[-1] = saida[-1].rstrip() + " " + s
+        else:
+            saida.append(s)
+    return saida
+
+
 def split_sentences(text: str) -> List[str]:
     """
     Segmenta o texto em sentenças.
 
-    Tenta usar spaCy (mais robusto para português: lida bem com
-    abreviações, siglas, números decimais etc.). Se o modelo do spaCy
-    não estiver instalado, cai para uma divisão simples por regex
-    (menos precisa, mas suficiente para não travar o pipeline).
+    Usa spaCy (mais robusto para português) com um componente extra que
+    impede quebra depois de abreviação e de dois-pontos, mais uma junção
+    final dos fragmentos sem pontuação. Se o modelo do spaCy não estiver
+    instalado, cai para uma divisão simples por regex.
     """
     try:
         import spacy
 
         if not hasattr(split_sentences, "_nlp"):
-            split_sentences._nlp = spacy.load(
+            _registrar_componente()
+            nlp = spacy.load(
                 "pt_core_news_sm", disable=["ner", "lemmatizer", "tagger"]
             )
+            # precisa rodar antes de quem define os limites de sentença
+            if "parser" in nlp.pipe_names:
+                nlp.add_pipe("nao_quebrar_apos_abreviacao", before="parser")
+            else:
+                nlp.add_pipe("nao_quebrar_apos_abreviacao", first=True)
+            split_sentences._nlp = nlp
+
         doc = split_sentences._nlp(text)
         sentences = [s.text.strip() for s in doc.sents if s.text.strip()]
-        return sentences
+        return _juntar_fragmentos(sentences)
     except Exception:
         # Fallback simples: divide em ., !, ? seguidos de espaço/maiúscula.
         raw = re.split(r"(?<=[.!?])\s+(?=[A-ZÀ-Ú0-9])", text.strip())

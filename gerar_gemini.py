@@ -37,8 +37,8 @@ from common import (
 )
 
 MODELO = "gemini-3.1-pro-preview"
+# Mesma temperatura nos três provedores (valor padrão da API).
 TEMPERATURA = 1.0
-TOP_P = 1.0
 # No Gemini 3, os tokens de "raciocínio" (thinking) contam dentro do
 # max_output_tokens. Com 2000, o raciocínio consumia boa parte do limite
 # e o texto final saía cortado. 350-400 palavras em português ficam em
@@ -129,7 +129,6 @@ def gerar(pasta_saida: str, limite_usd: float, quantidade: int) -> None:
                     contents=prompt,
                     config={
                         "temperature": TEMPERATURA,
-                        "top_p": TOP_P,
                         "max_output_tokens": MAX_OUTPUT_TOKENS,
                         "thinking_config": {"thinking_level": "low"},
                     },

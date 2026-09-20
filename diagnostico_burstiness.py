@@ -36,8 +36,17 @@ from pathlib import Path
 
 from metrics import TucanoMetrics
 
-LIMITE_RAZAO = 5.0    # maior perplexidade / mediana
-QUEDA_ALERTA = 0.40   # 40% de queda no burstiness ao tirar a maior sentença
+# Limiares recalibrados depois das primeiras rodadas.
+#
+# A queda ao remover a maior sentença NÃO serve como critério isolado: num
+# desvio-padrão sobre ~13 valores, tirar o máximo derruba o resultado de 30% a
+# 50% por construção, em qualquer distribuição assimétrica. Com o corte em 40%
+# o script sinalizava 31 dos 102 textos, quase todos sem defeito nenhum.
+#
+# O sinal que de fato separou texto defeituoso de variação normal foi a RAZÃO
+# entre a maior perplexidade e a mediana.
+LIMITE_RAZAO = 10.0   # maior perplexidade / mediana
+QUEDA_ALERTA = 0.75   # queda no burstiness ao tirar a maior sentença
 
 
 def analisar(tm: TucanoMetrics, caminho: Path) -> dict:

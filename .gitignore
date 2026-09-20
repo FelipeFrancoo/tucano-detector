@@ -1,0 +1,21 @@
+# Ambiente virtual e cache do Python
+venv/
+__pycache__/
+*.py[cod]
+
+# macOS
+.DS_Store
+
+# Backups e arquivos temporários
+*.bak
+*.orig
+
+# Saídas geradas pelos scripts (regeráveis)
+resultados*.csv
+diagnostico_burstiness.csv
+
+# Material do TCC (texto, não código)
+Claude outputs/
+
+# Chaves de API — nunca versionar
+.env

@@ -1,7 +1,0 @@
-arquivo,origem,perplexidade,burstiness,n_sentencas,n_tokens,n_descartadas
-gemini_aprendizado_de_máquina_001.txt,gemini,53.5377,21.4162,10,742,0
-gemini_banco_de_dados_001.txt,gemini,34.9904,23.6697,11,518,0
-gemini_inteligência_artificial_001.txt,gemini,29.0907,22.4366,10,498,0
-gemini_processamento_de_linguagem_natural_001.txt,gemini,32.6201,12.1571,14,504,0
-gemini_processamento_de_linguagem_natural_002.txt,gemini,35.0879,13.7863,14,530,0
-gemini_visão_computacional_001.txt,gemini,34.4913,16.2007,12,495,0
