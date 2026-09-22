@@ -73,14 +73,16 @@ separa defeito de extração de variação estilística real.
 
 ```bash
 export OPENAI_API_KEY="..."      # ANTHROPIC_API_KEY / GEMINI_API_KEY
-python gerar_chatgpt.py --saida corpus --quantidade 5 --limite-usd 3
+python gerar_gemini.py --saida corpus --quantidade 10 --limite-brl 2
 ```
 
 Os três scripts têm a mesma interface. Cada execução continua a numeração de
 onde a anterior parou, então é seguro gerar em lotes pequenos. Textos fora da
-faixa de 300 a 450 palavras, ou cortados pelo limite de tokens, são descartados
-e regerados (até três tentativas). Confira os preços por token no topo de cada
-script antes de rodar em lote — o limite de gasto depende deles.
+faixa de 250 a 430 palavras, ou cortados pelo limite de tokens, são descartados
+e regerados (até três tentativas). O gasto estimado de cada chamada é somado em `gastos_api.json`, e o
+script para sozinho quando o total chega ao `ORCAMENTO_TOTAL_BRL` definido no
+topo do gerador. É uma estimativa pelos tokens e pelo preço de tabela — a fonte
+oficial é o painel de faturamento do provedor.
 
 ## Estrutura do corpus
 

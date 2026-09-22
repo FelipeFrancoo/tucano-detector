@@ -12,7 +12,7 @@ __pycache__/
 
 # Saídas geradas pelos scripts (regeráveis)
 resultados*.csv
-diagnostico_burstiness.csv
+diagnostico*.csv
 
 # Material do TCC (texto, não código)
 Claude outputs/

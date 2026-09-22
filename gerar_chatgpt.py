@@ -30,6 +30,8 @@ from common import (
     conferir_tamanho,
     montar_prompt,
     registrar_historico,
+    arquivos_do_tema,
+    carregar_historico,
     salvar_texto,
 )
 
@@ -39,7 +41,7 @@ MODELO = "gpt-5.6-sol"
 # modelos sem que o parâmetro vire uma variável solta. top_p fica no padrão.
 TEMPERATURA = 1.0
 # Folga para modelos que gastam tokens de raciocínio antes de responder:
-# 350-400 palavras em português são ~700-900 tokens de texto.
+# 300-380 palavras em português são ~700-900 tokens de texto.
 MAX_TOKENS = 8192
 PROVEDOR = "chatgpt"
 
@@ -83,11 +85,15 @@ def chamar(client, prompt: str):
         raise
 
 
-def montar_fila(quantidade: int) -> list:
-    """Monta a fila com exatamente `quantidade` temas. Os temas são
-    distribuídos em rodadas embaralhadas: só se repete um tema depois que
-    todos os outros já foram usados."""
-    restantes = {tema: qtd for tema, qtd in TEMAS_DISTRIBUICAO.items()}
+def montar_fila(quantidade: int, pasta_saida: str) -> list:
+    """Monta a fila com até `quantidade` temas, descontando o que já foi gerado
+    em execuções anteriores, para que o total por tema nunca passe da quota de
+    common.py. Os temas saem em rodadas embaralhadas: só se repete um tema
+    depois que todos os outros com quota restante já foram usados."""
+    restantes = {tema: max(0, qtd - len(arquivos_do_tema(pasta_saida, PROVEDOR, tema)))
+                 for tema, qtd in TEMAS_DISTRIBUICAO.items()}
+    print("Faltam por tema:", ", ".join(f"{t} {q}" for t, q in restantes.items()),
+          f"(total {sum(restantes.values())})")
     fila = []
     while len(fila) < quantidade and any(restantes.values()):
         rodada = [tema for tema, qtd in restantes.items() if qtd > 0]
@@ -116,8 +122,11 @@ def proximo_indice(pasta_saida: str, tema: str) -> int:
 
 def gerar(pasta_saida: str, limite_usd: float, quantidade: int) -> None:
     client = OpenAI()  # lê OPENAI_API_KEY do ambiente
-    fila_temas = montar_fila(quantidade)
-    historico = {}
+    fila_temas = montar_fila(quantidade, pasta_saida)
+    if not fila_temas:
+        print("Todas as quotas já foram atingidas. Nada a gerar.")
+        return
+    historico = carregar_historico(pasta_saida, PROVEDOR)  # inclui os lotes anteriores
     contador_por_tema = {}
     total = len(fila_temas)
     gasto = 0.0
