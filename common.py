@@ -172,8 +172,8 @@ def montar_prompt(tema: str, historico: dict) -> str:
 # Frase em que o texto declara o que o trabalho propõe. É ela que resume a
 # ABORDAGEM — as primeiras palavras do texto são só contextualização genérica
 # ("A Inteligência Artificial tem se consolidado...") e não servem para isso.
-_FRASE_OBJETIVO = re.compile(r"(este|presente|nosso) (trabalho|artigo|estudo)|tem como objetivo|"
-                             r"o objetivo (deste|do presente)|\bpropõe\b|\bpropomos\b", re.I)
+_FRASE_OBJETIVO = re.compile(r"\b(este|presente|nosso) (trabalho|artigo|estudo)|tem como objetivo|"
+                             r"\bo objetivo (é|deste|do presente|principal)|\bpropõe\b|\bpropomos\b", re.I)
 
 
 def resumo_da_abordagem(texto: str) -> str:

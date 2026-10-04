@@ -1,19 +1,21 @@
 """
 gerar_chatgpt.py
-Gera textos sintéticos via API da OpenAI (ChatGPT) para a parcela
-sintética do corpus do TCC, usando os temas e o prompt de common.py.
-Um arquivo .txt por texto.
+Gera textos sintéticos via API oficial da OpenAI (ChatGPT)
+para a parcela sintética do corpus do TCC, usando os temas definidos
+em common.py. Por padrão gera apenas 5 textos (um por tema, em temas
+diferentes), cada um salvo em seu próprio arquivo .txt.
 
-Instalação:
+Instalação necessária:
     pip install openai
 
-Configuração:
+Configuração necessária (defina sua chave de API como variável de
+ambiente antes de rodar):
     export OPENAI_API_KEY="sua-chave-aqui"
 
 Uso:
     python gerar_chatgpt.py --saida corpus
     python gerar_chatgpt.py --saida corpus --quantidade 5
-    python gerar_chatgpt.py --saida corpus --limite-usd 3
+    python gerar_chatgpt.py --saida corpus --quantidade 5 --limite-brl 2
 """
 
 import argparse
@@ -33,56 +35,53 @@ from common import (
     arquivos_do_tema,
     carregar_historico,
     salvar_texto,
+    COTACAO_USD_BRL,
+    gasto_registrado,
+    registrar_gasto,
 )
 
 MODELO = "gpt-5.6-sol"
-# Mesma temperatura nos três provedores (valor padrão da API). Manter
-# idêntico é o que permite comparar a variabilidade dos textos entre os
-# modelos sem que o parâmetro vire uma variável solta. top_p fica no padrão.
+# Mesma temperatura nos três provedores (valor padrão da API).
 TEMPERATURA = 1.0
-# Folga para modelos que gastam tokens de raciocínio antes de responder:
-# 300-380 palavras em português são ~700-900 tokens de texto.
+# Esforço de raciocínio baixo, equivalente ao thinking_level "low" do Gemini,
+# para que os dois modelos gerem nas mesmas condições.
+ESFORCO_RACIOCINIO = "low"
+# Os tokens de raciocínio contam dentro do max_completion_tokens. 300-380
+# palavras em português ficam em ~700-900 tokens; 8192 é o mesmo teto do Gemini.
 MAX_TOKENS = 8192
 PROVEDOR = "chatgpt"
 
-QUANTIDADE_PADRAO = 5
+QUANTIDADE_PADRAO = 5  # quantos textos gerar nesta execução (1 arquivo .txt por texto)
+# A faixa aceita de palavras e o número de tentativas vêm de common.py,
+# para que os três modelos usem exatamente o mesmo critério.
 
-# Preços por token. CONFIRA os valores vigentes na página de preços da
-# OpenAI antes de rodar em lote — o limite de gasto depende deles.
-PRECO_ENTRADA_USD = 1.25 / 1_000_000
-PRECO_SAIDA_USD = 10.00 / 1_000_000
-LIMITE_USD_PADRAO = 4.00
+# Preços do gpt-5.6-sol, em US$ por token. Tokens de raciocínio são cobrados
+# como saída. Usa-se o preço cheio (US$ 5/30), não o promocional (US$ 4/20,
+# válido até nov/2026): a estimativa erra para cima e o teto fica mais seguro.
+PRECO_ENTRADA_USD = 5.00 / 1_000_000
+PRECO_SAIDA_USD = 30.00 / 1_000_000
+# Orçamento em REAIS. O saldo da conta é US$ 5 (~R$ 25,50); o teto de R$ 22,00
+# deixa margem para impostos, variação do câmbio e a imprecisão da estimativa.
+ORCAMENTO_TOTAL_BRL = 22.00      # teto somado de TODAS as execuções
+LIMITE_BRL_POR_EXECUCAO = 2.00   # teto de uma única execução
+CUSTO_INICIAL_ESTIMADO_USD = 0.05  # margem de segurança antes da 1ª chamada
 
 
 def uso_da_resposta(resposta) -> tuple:
-    uso = getattr(resposta, "usage", None)
+    """Retorna (tokens de entrada, tokens do texto, tokens de raciocínio).
+    Na OpenAI, completion_tokens já inclui o raciocínio; aqui ele é separado."""
+    uso = resposta.usage
     if uso is None:
-        return 0, 0
-    return getattr(uso, "prompt_tokens", 0) or 0, getattr(uso, "completion_tokens", 0) or 0
+        return 0, 0, 0
+    detalhes = getattr(uso, "completion_tokens_details", None)
+    raciocinio = (getattr(detalhes, "reasoning_tokens", 0) or 0) if detalhes else 0
+    saida = uso.completion_tokens or 0
+    return uso.prompt_tokens or 0, saida - raciocinio, raciocinio
 
 
 def custo_da_resposta(resposta) -> float:
-    entrada, saida = uso_da_resposta(resposta)
-    return entrada * PRECO_ENTRADA_USD + saida * PRECO_SAIDA_USD
-
-
-def chamar(client, prompt: str):
-    """Chama a API. Modelos de raciocínio da OpenAI usam
-    `max_completion_tokens`; os anteriores usam `max_tokens`. Tenta o
-    primeiro e cai para o segundo se a API recusar o parâmetro."""
-    base = dict(
-        model=MODELO,
-        messages=[{"role": "user", "content": prompt}],
-        temperature=TEMPERATURA,
-    )
-    try:
-        return client.chat.completions.create(max_completion_tokens=MAX_TOKENS, **base)
-    except TypeError:
-        return client.chat.completions.create(max_tokens=MAX_TOKENS, **base)
-    except Exception as erro:
-        if "max_completion_tokens" in str(erro) or "max_tokens" in str(erro):
-            return client.chat.completions.create(max_tokens=MAX_TOKENS, **base)
-        raise
+    entrada, texto, raciocinio = uso_da_resposta(resposta)
+    return entrada * PRECO_ENTRADA_USD + (texto + raciocinio) * PRECO_SAIDA_USD
 
 
 def montar_fila(quantidade: int, pasta_saida: str) -> list:
@@ -107,9 +106,9 @@ def montar_fila(quantidade: int, pasta_saida: str) -> list:
 
 
 def proximo_indice(pasta_saida: str, tema: str) -> int:
-    """Próximo índice livre para o tema, olhando os arquivos já salvos.
-    Sem isso, uma nova execução recomeçaria no 001 e sobrescreveria os
-    textos gerados antes."""
+    """Descobre o próximo índice livre para o tema, olhando os arquivos já
+    salvos em execuções anteriores. Sem isso, uma nova execução começaria
+    de novo no 001 e sobrescreveria os textos já gerados."""
     tema_slug = tema.lower().replace(" ", "_")
     padrao = os.path.join(pasta_saida, PROVEDOR, f"{PROVEDOR}_{tema_slug}_*.txt")
     maior = 0
@@ -120,16 +119,32 @@ def proximo_indice(pasta_saida: str, tema: str) -> int:
     return maior + 1
 
 
-def gerar(pasta_saida: str, limite_usd: float, quantidade: int) -> None:
-    client = OpenAI()  # lê OPENAI_API_KEY do ambiente
+def brl(usd: float) -> str:
+    return f"R$ {usd * COTACAO_USD_BRL:.2f}"
+
+
+def gerar(pasta_saida: str, limite_brl: float, quantidade: int) -> None:
+    anterior = gasto_registrado(PROVEDOR)
+    saldo_brl = ORCAMENTO_TOTAL_BRL - anterior * COTACAO_USD_BRL
+    if saldo_brl <= 0:
+        print(f"Orçamento total esgotado: {brl(anterior)} de R$ {ORCAMENTO_TOTAL_BRL:.2f}. "
+              f"Para continuar, aumente ORCAMENTO_TOTAL_BRL em gerar_chatgpt.py.")
+        return
+    limite_usd = min(limite_brl, saldo_brl) / COTACAO_USD_BRL
+    print(f"Gasto registrado até agora: {brl(anterior)} de R$ {ORCAMENTO_TOTAL_BRL:.2f} "
+          f"(restam R$ {saldo_brl:.2f}). Limite desta execução: {brl(limite_usd)}.")
+
     fila_temas = montar_fila(quantidade, pasta_saida)
     if not fila_temas:
         print("Todas as quotas já foram atingidas. Nada a gerar.")
         return
+
+    client = OpenAI()  # lê OPENAI_API_KEY do ambiente automaticamente
     historico = carregar_historico(pasta_saida, PROVEDOR)  # inclui os lotes anteriores
     contador_por_tema = {}
     total = len(fila_temas)
     gasto = 0.0
+    maior_chamada = CUSTO_INICIAL_ESTIMADO_USD  # usada para não ultrapassar o teto
 
     for i, tema in enumerate(fila_temas, start=1):
         prompt = montar_prompt(tema, historico)
@@ -137,25 +152,40 @@ def gerar(pasta_saida: str, limite_usd: float, quantidade: int) -> None:
         detalhes = ""
 
         for tentativa in range(1, MAX_TENTATIVAS + 1):
-            if gasto >= limite_usd:
-                print(f"Limite de gasto atingido (US$ {gasto:.2f} de US$ {limite_usd:.2f}). Parando.")
+            # para ANTES de uma chamada que possa estourar o limite
+            if gasto + maior_chamada > limite_usd:
+                print(f"Limite desta execução atingido ({brl(gasto)} de {brl(limite_usd)}). Parando.")
+                print(f"Total acumulado: {brl(gasto_registrado(PROVEDOR))} de R$ {ORCAMENTO_TOTAL_BRL:.2f}.")
                 return
 
             try:
-                resposta = chamar(client, prompt)
+                resposta = client.chat.completions.create(
+                    model=MODELO,
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=TEMPERATURA,
+                    max_completion_tokens=MAX_TOKENS,
+                    reasoning_effort=ESFORCO_RACIOCINIO,
+                )
             except Exception as erro:
                 print(f"[{i}/{total}] Tentativa {tentativa}: erro ao gerar texto para tema '{tema}': {erro}")
                 time.sleep(5)
                 continue
 
-            gasto += custo_da_resposta(resposta)
+            custo = custo_da_resposta(resposta)
+            gasto += custo
+            maior_chamada = max(maior_chamada, custo)
+            registrar_gasto(PROVEDOR, custo)
+
             escolha = resposta.choices[0] if resposta.choices else None
             candidato = (escolha.message.content or "") if escolha else ""
-            _, tokens_saida = uso_da_resposta(resposta)
-            detalhes = f"{len(candidato.split())} palavras, {tokens_saida} tokens"
+            n_palavras = len(candidato.split())
+            _, tokens_texto, tokens_raciocinio = uso_da_resposta(resposta)
+            motivo = escolha.finish_reason if escolha else None
+            detalhes = (f"{n_palavras} palavras, {tokens_texto} tokens de texto + "
+                        f"{tokens_raciocinio} de raciocínio, {brl(custo)}")
 
             problema = conferir_tamanho(candidato)
-            if escolha is not None and escolha.finish_reason == "length":
+            if motivo == "length":
                 print(f"[{i}/{total}] Tentativa {tentativa}: texto cortado pelo limite de tokens ({detalhes}).")
             elif problema:
                 print(f"[{i}/{total}] Tentativa {tentativa}: texto {problema} ({detalhes}).")
@@ -174,11 +204,12 @@ def gerar(pasta_saida: str, limite_usd: float, quantidade: int) -> None:
         registrar_historico(historico, tema, texto)
 
         caminho = salvar_texto(texto, PROVEDOR, tema, indice, pasta_saida)
-        print(f"[{i}/{total}] Salvo: {caminho} ({detalhes}; gasto acumulado US$ {gasto:.3f})")
+        print(f"[{i}/{total}] Salvo: {caminho} ({detalhes}; nesta execução {brl(gasto)})")
 
         time.sleep(1)
 
-    print(f"Concluído. Gasto estimado: US$ {gasto:.3f}")
+    print(f"Concluído. Nesta execução: {brl(gasto)}. "
+          f"Total acumulado: {brl(gasto_registrado(PROVEDOR))} de R$ {ORCAMENTO_TOTAL_BRL:.2f}.")
 
 
 if __name__ == "__main__":
@@ -186,10 +217,18 @@ if __name__ == "__main__":
         description=f"Gera textos sintéticos via ChatGPT ({MODELO}), um arquivo .txt por texto."
     )
     parser.add_argument("--saida", type=str, default="corpus", help="Pasta raiz de saída do corpus.")
-    parser.add_argument("--quantidade", type=int, default=QUANTIDADE_PADRAO,
-                        help="Quantos textos gerar (cada um em um arquivo separado).")
-    parser.add_argument("--limite-usd", type=float, default=LIMITE_USD_PADRAO,
-                        help="Para a geração quando o gasto estimado atingir este valor (US$).")
+    parser.add_argument(
+        "--quantidade",
+        type=int,
+        default=QUANTIDADE_PADRAO,
+        help="Quantos textos gerar (cada um em um arquivo separado).",
+    )
+    parser.add_argument(
+        "--limite-brl",
+        type=float,
+        default=LIMITE_BRL_POR_EXECUCAO,
+        help="Teto de gasto desta execução, em reais. O teto total fica em ORCAMENTO_TOTAL_BRL.",
+    )
     args = parser.parse_args()
 
-    gerar(args.saida, args.limite_usd, args.quantidade)
+    gerar(args.saida, args.limite_brl, args.quantidade)
